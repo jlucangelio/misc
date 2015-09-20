@@ -1,5 +1,8 @@
-/* tweaktime.c - Small program to synchronize the computer's clock
-			with an online SNTP server. */
+/*
+ * tweaktime.c
+ * Small tool to synchronize the computer's clock with an SNTP server.
+ * This is likely the first Linux program I ever wrote, around 2000 or so.
+ */
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -15,116 +18,112 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-int main(int argc, char ** argv) {
-	struct hostent * host;		/* SNTP server */
-	struct in_addr address;		/* Address of SNTP server */
-	struct sockaddr_in local, rem;	/* Local and remote addresses for socket  */
-	struct tm;			/* Time representations of origin of time
-                                		in timestamp format -1/1/1900- and
-                                		Unix epoch */
-                                 
-	struct timeval *tv;		/* timeval and timezone for get/settimeofday() */ 
-	struct timezone *tz;  
+int main(int argc, char** argv) {
+  struct hostent* host;          /* SNTP server */
+  struct in_addr address;        /* Address of SNTP server */
+  struct sockaddr_in local, rem; /* Local and remote addresses for socket  */
 
-	int sock;                  
-	int res;                   
-	unsigned int msg_s[15], msg_r[15]; 
-	unsigned int seconds;    
-	unsigned int tdiff;  
-	socklen_t len;                   
-	time_t t;
+  struct timeval* tv; /* timeval and timezone for get/settimeofday() */
+  struct timezone* tz;
 
-	if (argc != 2) {
-		fprintf(stderr, "Only a single argument is expected, the NTP host.\n");
-		return 1;
-	}
+  int sock;
+  int res;
+  unsigned int msg_s[15], msg_r[15];
+  unsigned int seconds;
+  unsigned int tdiff;
+  socklen_t len;
+  time_t t;
 
-	/* If the argument looks like an IP address, assume it was one. */
-	if (inet_aton(argv[1], &address))
-    		host = gethostbyaddr((char *) &address, sizeof(address), AF_INET);
-	else {
-		host = gethostbyname(argv[1]);
-		address = **(struct in_addr **) host->h_addr_list;
-	}
+  if (argc != 2) {
+    fprintf(stderr, "Usage: %s <NTP host>\n", argv[0]);
+    return 1;
+  }
 
-	if (!host) {
-		herror("Error looking up host!");
-		return 1;
-	}
+  /* If the argument looks like an IP address, assume it was one. */
+  if (inet_aton(argv[1], &address)) {
+    host = gethostbyaddr((char*)&address, sizeof(address), AF_INET);
+  } else {
+    host = gethostbyname(argv[1]);
+    address = **(struct in_addr**)host->h_addr_list;
+  }
 
-	/* Create socket, initialize remote address and bind them */  
+  if (!host) {
+    herror("Error looking up host.");
+    return 1;
+  }
 
-	sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-  
-	memset(&rem, 0, sizeof(rem));
-  
-	rem.sin_family = AF_INET;
-	rem.sin_addr = address;
-	rem.sin_port = htons(123);
-  
-	len = sizeof(rem);  
+  /* Create socket, initialize remote address and bind socket. */
+  sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
-	local.sin_family = AF_INET;
-	memset(&(local.sin_addr), 0, sizeof(local.sin_addr));
-	memset(&(local.sin_port), 0, sizeof(local.sin_port));
-  
-	res = bind(sock, (struct sockaddr * )&local, sizeof(local));
+  memset(&rem, 0, sizeof(rem));
 
-	if (res) {
-		perror("Error binding socket!");
-		return 1;
-	}
+  rem.sin_family = AF_INET;
+  rem.sin_addr = address;
+  rem.sin_port = htons(123);
 
-	/* Create SNTP message and send it */
+  len = sizeof(rem);
 
-	msg_s[0] = htonl(0x0B000000);
-	memset(msg_s+1, 0, 56);
- 
-	res = sendto(sock, msg_s, sizeof(msg_s), 0,
-			(struct sockaddr *)&rem, sizeof(rem));
+  local.sin_family = AF_INET;
+  memset(&(local.sin_addr), 0, sizeof(local.sin_addr));
+  memset(&(local.sin_port), 0, sizeof(local.sin_port));
 
-	if (res)
-		perror("Sending message to remote host");
+  res = bind(sock, (struct sockaddr*)&local, sizeof(local));
 
-	/* Get reply and extract the time */
+  if (res) {
+    perror("Error binding socket.");
+    return 1;
+  }
 
-	res = recvfrom(sock, msg_r, sizeof(msg_r), 0,
-			(struct sockaddr *)&rem, &len);
+  /* Create SNTP message and send it. */
+  msg_s[0] = htonl(0x0B000000);
+  memset(msg_s + 1, 0, sizeof(unsigned int) * 14);
 
-	if (res)
-		perror("Receiving answer from remote host");
+  res = sendto(sock, msg_s, sizeof(msg_s), 0, (struct sockaddr*)&rem,
+               sizeof(rem));
 
-	seconds = ntohl(msg_r[10]);
+  if (res < 0)
+    perror("Sending message to remote host");
 
-	/* Converts between timestamp and Unix epoch.
-		There are 86400 seconds in a day, and there are 17 leap years
-		between 1900 and 1970 */ 
+  /* Get reply and extract the time. */
+  res = recvfrom(sock, msg_r, sizeof(msg_r), 0, (struct sockaddr*)&rem, &len);
 
-	tdiff = (86400 * 365) * 53;
-	tdiff += (86400 * 366) * 17;
+  if (res < 0)
+    perror("Receiving answer from remote host");
 
-	tv = (struct timeval*)malloc(sizeof(struct timeval));
-	tz = (struct timezone*)malloc(sizeof(struct timezone));
+  seconds = ntohl(msg_r[10]);
 
-	/* Set time and display results */
+  /*
+   * Convert between timestamp and Unix epoch.
+   * There are 86400 seconds in a day, and there are 17 leap years between 1900
+   * and 1970
+   */
+  tdiff = (86400 * 365) * 53;
+  tdiff += (86400 * 366) * 17;
 
-	gettimeofday(tv, tz); 
+  tv = (struct timeval*)malloc(sizeof(struct timeval));
+  tz = (struct timezone*)malloc(sizeof(struct timezone));
 
-	time(&t);
+  /* Set time and display results. */
+  gettimeofday(tv, tz);
 
-	printf("\nOriginal time: %s", ctime(&t));
+  time(&t);
 
-	tv->tv_sec = seconds - tdiff;
-	tv->tv_usec = 0;
+  printf("\nOriginal time: %s", ctime(&t));
 
-	settimeofday(tv, tz);
+  tv->tv_sec = seconds - tdiff;
+  tv->tv_usec = 0;
 
-	time(&t);
+  if (settimeofday(tv, tz) < 0) {
+    perror("settimeofday");
+    return 1;
+  }
 
-	printf("Corrected time: %s\n", ctime(&t));
+  time(&t);
 
-	free(tv);
-	free(tz);
+  printf("Corrected time: %s\n", ctime(&t));
 
-	return 0;
+  free(tv);
+  free(tz);
+
+  return 0;
 }
